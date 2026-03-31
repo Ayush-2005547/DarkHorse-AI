@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import os
 
-API_BASE = os.getenv("API_BASE", "http://localhost:8000")
+API_BASE = None  # No backend (demo mode)
 
 
 def highlight_text_html(text: str, phrases: list) -> str:
@@ -55,21 +55,7 @@ def render_result(result: dict, highlighted_html=None):
             unsafe_allow_html=True
         )
 
-    payload = {
-        "input_type": result.get("_input_type", "text"),
-        "input_value": result.get("_input_value", ""),
-        "result": {k: v for k, v in result.items() if not k.startswith("_")}
-    }
-    r = requests.post(f"{API_BASE}/report/pdf", json=payload)
-    if r.ok:
-        st.download_button(
-            "Download Report (PDF)",
-            data=r.content,
-            file_name="darkhorse_report.pdf",
-            mime="application/pdf"
-        )
-    else:
-        st.warning("PDF generation failed (backend).")
+    # ❌ Removed PDF backend dependency completely
 
 
 def main():
@@ -79,8 +65,8 @@ def main():
 
     tabs = st.tabs(["📩 Text Analysis", "🔗 URL Analysis", "🧾 Monitoring", "ℹ️ API Health"])
 
+    # ---------------- TEXT ----------------
     with tabs[0]:
-        # SESSION STATE FIX
         if "text" not in st.session_state:
             st.session_state.text = ""
 
@@ -95,11 +81,7 @@ def main():
         if sample_cols[2].button("Sample: Safe"):
             st.session_state.text = "Hi, please join the meeting at 3 PM. Agenda attached. Thanks!"
 
-        text = st.text_area(
-            "Paste message/email/social content",
-            height=200,
-            key="text"
-        )
+        text = st.text_area("Paste message/email/social content", height=200, key="text")
 
         if st.button("Analyze Text", type="primary"):
             if not text.strip():
@@ -107,18 +89,24 @@ def main():
             else:
                 with st.spinner("Analyzing..."):
                     time.sleep(0.3)
-                    res = requests.post(f"{API_BASE}/analyze/text", json={"text": text})
-                if not res.ok:
-                    st.error(res.text)
-                else:
-                    result = res.json()
-                    result["_input_type"] = "text"
-                    result["_input_value"] = text
-                    highlighted = highlight_text_html(text, result.get("highlights", []))
-                    render_result(result, highlighted_html=highlighted)
 
+                # ✅ DEMO RESULT (since no backend)
+                result = {
+                    "label": "Suspicious" if "urgent" in text.lower() else "Safe",
+                    "score": 65 if "urgent" in text.lower() else 10,
+                    "confidence": 80,
+                    "reasons": ["Demo mode: heuristic keyword detection"],
+                    "highlights": ["urgent", "verify", "otp"]
+                }
+
+                result["_input_type"] = "text"
+                result["_input_value"] = text
+
+                highlighted = highlight_text_html(text, result.get("highlights", []))
+                render_result(result, highlighted_html=highlighted)
+
+    # ---------------- URL ----------------
     with tabs[1]:
-        # SESSION STATE FIX FOR URL
         if "url" not in st.session_state:
             st.session_state.url = ""
 
@@ -133,11 +121,7 @@ def main():
         if sample_cols[2].button("Sample URL: Safe"):
             st.session_state.url = "https://www.wikipedia.org/"
 
-        url = st.text_input(
-            "Paste URL",
-            key="url",
-            placeholder="https://example.com/login"
-        )
+        url = st.text_input("Paste URL", key="url", placeholder="https://example.com/login")
 
         if st.button("Analyze URL", type="primary"):
             if not url.strip():
@@ -145,49 +129,28 @@ def main():
             else:
                 with st.spinner("Analyzing..."):
                     time.sleep(0.2)
-                    res = requests.post(f"{API_BASE}/analyze/url", json={"url": url})
-                if not res.ok:
-                    st.error(res.text)
-                else:
-                    result = res.json()
-                    result["_input_type"] = "url"
-                    result["_input_value"] = url
-                    render_result(result)
 
+                result = {
+                    "label": "Suspicious" if "http://" in url else "Safe",
+                    "score": 65 if "http://" in url else 5,
+                    "confidence": 80,
+                    "reasons": ["Demo mode: HTTP detected (no SSL)"]
+                }
+
+                result["_input_type"] = "url"
+                result["_input_value"] = url
+
+                render_result(result)
+
+    # ---------------- MONITORING ----------------
     with tabs[2]:
-
         st.subheader("Threat Monitoring (SQLite Logs)")
-        limit = st.slider("Rows", 20, 200, 100, 10)
-        res = requests.get(f"{API_BASE}/logs", params={"limit": limit})
-        if not res.ok:
-            st.error("Backend not reachable.")
-        else:
-            items = res.json().get("items", [])
-            df = pd.DataFrame(items)
-            if df.empty:
-                st.info("No logs yet.")
-            else:
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Total", len(df))
-                col2.metric("Avg Risk", f"{df['score'].mean():.1f}/100")
-                col3.metric("Malicious %", f"{(df['label'].eq('Malicious').mean()*100):.1f}%")
+        st.info("Monitoring disabled (no backend)")
 
-                st.bar_chart(df["label"].value_counts())
-                st.dataframe(df, use_container_width=True)
-
-        if st.button("Clear Logs"):
-            requests.post(f"{API_BASE}/logs/clear")
-            st.success("Cleared (refresh).")
-
+    # ---------------- API HEALTH ----------------
     with tabs[3]:
         st.write("API Base:", API_BASE)
-        ok = True
-        try:
-            r = requests.get(f"{API_BASE}/logs", params={"limit": 1}, timeout=3)
-            ok = r.ok
-        except Exception:
-            ok = False
-        st.success("Backend reachable" if ok else "Backend NOT reachable")
+        st.warning("Backend NOT connected (demo mode)")
 
 
 if __name__ == "__main__":
