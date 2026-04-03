@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import os
 
-API_BASE = None  # No backend (demo mode)
+API_BASE = "http://127.0.0.1:8000"
 
 
 def highlight_text_html(text: str, phrases: list) -> str:
@@ -21,7 +21,9 @@ def highlight_text_html(text: str, phrases: list) -> str:
 
 def _ireplace(text, old, new):
     import re
-    return re.compile(re.escape(old), re.IGNORECASE).sub(lambda m: new.replace(old, m.group(0)), text)
+    return re.compile(re.escape(old), re.IGNORECASE).sub(
+        lambda m: new.replace(old, m.group(0)), text
+    )
 
 
 def render_result(result: dict, highlighted_html=None):
@@ -43,6 +45,17 @@ def render_result(result: dict, highlighted_html=None):
     for r in result.get("reasons", []):
         st.write(f"- {r}")
 
+    # ✅ FACT CHECK RESULTS
+    fact_data = result.get("extra", {}).get("fact_check")
+    if fact_data:
+        st.markdown("**🧾 Fact Check Results:**")
+        for fc in fact_data:
+            st.write(f"• {fc.get('rating', 'Unknown')} — {fc.get('publisher', 'Unknown')}")
+            if fc.get("url"):
+                st.write(fc.get("url"))
+    else:
+        st.info("No verified fact-checks found for this claim.")
+
     cats = result.get("detected_categories", {})
     if cats:
         st.markdown("**Detected Signals:**")
@@ -55,13 +68,11 @@ def render_result(result: dict, highlighted_html=None):
             unsafe_allow_html=True
         )
 
-    # ❌ Removed PDF backend dependency completely
-
 
 def main():
     st.set_page_config(page_title="DarkHorse AI", layout="wide")
     st.title("DarkHorse AI")
-    st.caption("Real-Time Digital Threat Intelligence (PS-402) — Streamlit + FastAPI + SQLite")
+    st.caption("Real-Time Digital Threat Intelligence (PS-402)")
 
     tabs = st.tabs(["📩 Text Analysis", "🔗 URL Analysis", "🧾 Monitoring", "ℹ️ API Health"])
 
@@ -89,18 +100,19 @@ def main():
             else:
                 with st.spinner("Analyzing..."):
                     time.sleep(0.3)
-
-                # ✅ DEMO RESULT (since no backend)
-                result = {
-                    "label": "Suspicious" if "urgent" in text.lower() else "Safe",
-                    "score": 65 if "urgent" in text.lower() else 10,
-                    "confidence": 80,
-                    "reasons": ["Demo mode: heuristic keyword detection"],
-                    "highlights": ["urgent", "verify", "otp"]
-                }
-
-                result["_input_type"] = "text"
-                result["_input_value"] = text
+                    try:
+                        res = requests.post(f"{API_BASE}/analyze/text", json={"text": text})
+                        result = res.json()
+                    except Exception:
+                        st.warning("Backend not running — showing demo result")
+                        result = {
+                            "label": "Suspicious" if "urgent" in text.lower() else "Safe",
+                            "score": 65 if "urgent" in text.lower() else 10,
+                            "confidence": 80,
+                            "reasons": ["Demo fallback"],
+                            "highlights": ["urgent", "verify"],
+                            "extra": {}
+                        }
 
                 highlighted = highlight_text_html(text, result.get("highlights", []))
                 render_result(result, highlighted_html=highlighted)
@@ -121,7 +133,7 @@ def main():
         if sample_cols[2].button("Sample URL: Safe"):
             st.session_state.url = "https://www.wikipedia.org/"
 
-        url = st.text_input("Paste URL", key="url", placeholder="https://example.com/login")
+        url = st.text_input("Paste URL", key="url")
 
         if st.button("Analyze URL", type="primary"):
             if not url.strip():
@@ -129,28 +141,30 @@ def main():
             else:
                 with st.spinner("Analyzing..."):
                     time.sleep(0.2)
-
-                result = {
-                    "label": "Suspicious" if "http://" in url else "Safe",
-                    "score": 65 if "http://" in url else 5,
-                    "confidence": 80,
-                    "reasons": ["Demo mode: HTTP detected (no SSL)"]
-                }
-
-                result["_input_type"] = "url"
-                result["_input_value"] = url
+                    try:
+                        res = requests.post(f"{API_BASE}/analyze/url", json={"url": url})
+                        result = res.json()
+                    except Exception:
+                        st.warning("Backend not running — demo mode")
+                        result = {
+                            "label": "Suspicious",
+                            "score": 65,
+                            "confidence": 80,
+                            "reasons": ["Demo fallback"],
+                            "extra": {}
+                        }
 
                 render_result(result)
 
     # ---------------- MONITORING ----------------
     with tabs[2]:
-        st.subheader("Threat Monitoring (SQLite Logs)")
-        st.info("Monitoring disabled (no backend)")
+        st.subheader("Threat Monitoring")
+        st.info("Will activate after deployment")
 
     # ---------------- API HEALTH ----------------
     with tabs[3]:
         st.write("API Base:", API_BASE)
-        st.warning("Backend NOT connected (demo mode)")
+        st.success("Backend expected at this URL")
 
 
 if __name__ == "__main__":
